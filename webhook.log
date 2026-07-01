@@ -1,0 +1,7 @@
+nohup: ignoring input
+INFO:     Will watch for changes in these directories: ['/home/carlos/finbot']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [91142] using StatReload
+INFO:     Started server process [91167]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
