@@ -1,7 +1,13 @@
 nohup: ignoring input
-INFO:     Will watch for changes in these directories: ['/home/carlos/finbot']
-INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [91142] using StatReload
-INFO:     Started server process [91167]
+INFO:     Started server process [132497]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+2026-07-01 21:49:29,727 - INFO - 📩 Mensagem recebida: {'event': 'connection.update', 'instance': 'finbot', 'data': {'instance': 'finbot', 'state': 'connecting', 'statusReason': 200}, 'destination': 'https://server.tailb5388f.ts.net/webhook/whatsapp/connection-update', 'date_time': '2026-07-01T18:49:15.654Z', 'sender': '5511992624153@s.whatsapp.net', 'server_url': 'http://localhost:8080', 'apikey': '4D862B53EE67-4913-B7DA-D72DA7953D3C'}
+INFO:     172.19.0.4:0 - "POST /webhook/whatsapp HTTP/1.1" 200 OK
+2026-07-01 21:49:34,017 - INFO - 📩 Mensagem recebida: {'event': 'connection.update', 'instance': 'finbot', 'data': {'instance': 'finbot', 'wuid': '5511992624153@s.whatsapp.net', 'profileName': 'Carlos', 'profilePictureUrl': 'https://pps.whatsapp.net/v/t61.24694-24/483288719_616701454666807_8704764382944999227_n.jpg?ccb=11-4&oh=01_Q5Aa4wHA3N5XsORi46oQEfDGsaDj0U-6HMmOOsnTQxfWJEDROg&oe=6A52B1BD&_nc_sid=5e03e0&_nc_cat=104', 'state': 'open', 'statusReason': 200}, 'destination': 'https://server.tailb5388f.ts.net/webhook/whatsapp/connection-update', 'date_time': '2026-07-01T18:49:18.867Z', 'sender': '5511992624153@s.whatsapp.net', 'server_url': 'http://localhost:8080', 'apikey': '4D862B53EE67-4913-B7DA-D72DA7953D3C'}
+INFO:     172.19.0.4:0 - "POST /webhook/whatsapp HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [132497]
