@@ -38,6 +38,8 @@ class Usuario(Base):
     nome = Column(String, nullable=True)
     telefone = Column(String, unique=True, index=True, nullable=False)
     grupo_id = Column(String, nullable=True)
+    email = Column(String, nullable=True)  # 🔧 NOVO: email para login
+    senha_hash = Column(String, nullable=True)  # 🔧 NOVO: senha para login
     criado_em = Column(DateTime, server_default=func.now())
 
     categorias = relationship("Categoria", back_populates="usuario")
@@ -70,24 +72,6 @@ class Mes(Base):
 
     transacoes = relationship("Transacao", back_populates="mes")
 
-    @classmethod
-    def criar_para_grupo(cls, grupo_id: str):
-        agora = datetime.now()
-        mes = agora.month
-        ano = agora.year
-        data_inicio = datetime(ano, mes, 1)
-        if mes == 12:
-            data_fim = datetime(ano + 1, 1, 1) - timedelta(days=1)
-        else:
-            data_fim = datetime(ano, mes + 1, 1) - timedelta(days=1)
-        return cls(
-            mes=mes,
-            ano=ano,
-            grupo_id=grupo_id,
-            data_inicio=data_inicio,
-            data_fim=data_fim
-        )
-
 
 class Transacao(Base):
     __tablename__ = "transacoes"
@@ -98,12 +82,11 @@ class Transacao(Base):
     mes_id = Column(Integer, ForeignKey("meses.id"), nullable=True)
     grupo_id = Column(String, nullable=True)
 
-    # 🔧 NOVAS COLUNAS: forma de pagamento e parcelamento
-    forma_pagamento = Column(String, nullable=True)  # pix, credito, debito, dinheiro
-    parcelas = Column(Integer, nullable=True)        # número total de parcelas
-    parcela_atual = Column(Integer, nullable=True)   # parcela atual (1, 2, 3...)
-    data_vencimento = Column(DateTime, nullable=True)  # data de vencimento da parcela
-    transacao_original_id = Column(Integer, nullable=True)  # ID da transação original (para parcelas)
+    forma_pagamento = Column(String, nullable=True)
+    parcelas = Column(Integer, nullable=True)
+    parcela_atual = Column(Integer, nullable=True)
+    data_vencimento = Column(DateTime, nullable=True)
+    transacao_original_id = Column(Integer, nullable=True)
 
     valor = Column(Float, nullable=False)
     descricao = Column(String, nullable=True)
@@ -114,7 +97,3 @@ class Transacao(Base):
     usuario = relationship("Usuario", back_populates="transacoes")
     categoria = relationship("Categoria", back_populates="transacoes")
     mes = relationship("Mes", back_populates="transacoes")
-
-
-async def get_session() -> AsyncSession:
-    return AsyncSessionLocal()

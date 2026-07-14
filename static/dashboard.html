@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinBot - Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background: #f8f9fa; }
+        .card { border-radius: 12px; }
+        .stat-card { transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-4px); }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">💰 FinBot</a>
+            <div class="d-flex">
+                <span class="navbar-text me-3" id="userName">Usuário</span>
+                <button class="btn btn-outline-light btn-sm" id="logoutBtn">Sair</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Cards de resumo -->
+        <div class="row mb-4" id="resumoCards">
+            <div class="col-md-3">
+                <div class="card stat-card shadow-sm">
+                    <div class="card-body">
+                        <h6 class="text-muted">Receitas</h6>
+                        <h3 class="text-success" id="totalReceitas">R$ 0,00</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card shadow-sm">
+                    <div class="card-body">
+                        <h6 class="text-muted">Despesas</h6>
+                        <h3 class="text-danger" id="totalDespesas">R$ 0,00</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card shadow-sm">
+                    <div class="card-body">
+                        <h6 class="text-muted">Saldo</h6>
+                        <h3 class="text-primary" id="totalSaldo">R$ 0,00</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card shadow-sm">
+                    <div class="card-body">
+                        <h6 class="text-muted">Mês</h6>
+                        <h5 id="mesAtual">Julho/2026</h5>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gráficos -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card shadow-sm">
+                    <div class="card-header">
+                        <h6>Gastos por Categoria</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="categoriaChart" height="250"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card shadow-sm">
+                    <div class="card-header">
+                        <h6>Evolução Mensal</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="evolucaoChart" height="250"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabela de transações -->
+        <div class="card shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6>Transações</h6>
+                <div>
+                    <select id="filtroMes" class="form-select form-select-sm d-inline-block w-auto">
+                    </select>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover" id="transacoesTable">
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Descrição</th>
+                                <th>Categoria</th>
+                                <th>Forma</th>
+                                <th>Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody id="transacoesBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
