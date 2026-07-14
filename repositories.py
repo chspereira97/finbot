@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-from database import Usuario, Categoria, Transacao
+from database import Usuario, Categoria, Transacao, Mes
 
 
 class UsuarioRepository:
@@ -62,6 +62,33 @@ class CategoriaRepository:
         return result.scalars().all()
 
 
+class MesRepository:
+    def __init__(self, session):
+        self.session = session
+
+    async def get_or_create_mes_atual(self, grupo_id: str) -> Mes:
+        agora = datetime.now()
+        mes = agora.month
+        ano = agora.year
+
+        stmt = select(Mes).where(
+            Mes.mes == mes,
+            Mes.ano == ano,
+            Mes.grupo_id == grupo_id
+        )
+        result = await self.session.execute(stmt)
+        mes_obj = result.scalar_one_or_none()
+
+        if mes_obj:
+            return mes_obj
+
+        mes_obj = Mes.criar_para_grupo(grupo_id)
+        self.session.add(mes_obj)
+        await self.session.commit()
+        await self.session.refresh(mes_obj)
+        return mes_obj
+
+
 class TransacaoRepository:
     def __init__(self, session):
         self.session = session
@@ -73,7 +100,13 @@ class TransacaoRepository:
         valor: float,
         descricao: str,
         tipo: str,
-        grupo_id: str,  # 🔧 NOVO: obrigatório
+        grupo_id: str,
+        mes_id: int,
+        forma_pagamento: Optional[str] = None,
+        parcelas: Optional[int] = None,
+        parcela_atual: Optional[int] = None,
+        data_vencimento: Optional[datetime] = None,
+        transacao_original_id: Optional[int] = None,
         data: Optional[datetime] = None
     ) -> Transacao:
         if data is None:
@@ -82,7 +115,13 @@ class TransacaoRepository:
         transacao = Transacao(
             usuario_id=usuario_id,
             categoria_id=categoria_id,
-            grupo_id=grupo_id,  # 🔧 NOVO
+            mes_id=mes_id,
+            grupo_id=grupo_id,
+            forma_pagamento=forma_pagamento,
+            parcelas=parcelas,
+            parcela_atual=parcela_atual,
+            data_vencimento=data_vencimento,
+            transacao_original_id=transacao_original_id,
             valor=valor,
             descricao=descricao,
             tipo=tipo,
@@ -93,43 +132,28 @@ class TransacaoRepository:
         await self.session.refresh(transacao)
         return transacao
 
-    async def listar_por_usuario(
-        self,
-        usuario_id: int,
-        periodo: Optional[Tuple[datetime, datetime]] = None
-    ) -> List[Transacao]:
-        stmt = select(Transacao).where(Transacao.usuario_id == usuario_id)
-        stmt = stmt.options(
-            selectinload(Transacao.categoria),
-            selectinload(Transacao.usuario)
-        )
-        if periodo:
-            data_inicio, data_fim = periodo
-            stmt = stmt.where(and_(
-                Transacao.data >= data_inicio,
-                Transacao.data <= data_fim
-            ))
-        stmt = stmt.order_by(Transacao.data.desc())
-        result = await self.session.execute(stmt)
-        return result.scalars().all()
-
     async def listar_por_grupo(
         self,
         grupo_id: str,
-        periodo: Optional[Tuple[datetime, datetime]] = None
+        periodo: Optional[Tuple[datetime, datetime]] = None,
+        mes_id: Optional[int] = None
     ) -> List[Transacao]:
-        """Lista transações de um grupo específico (família ou motoristas)"""
         stmt = select(Transacao).where(Transacao.grupo_id == grupo_id)
-        stmt = stmt.options(
-            selectinload(Transacao.categoria),
-            selectinload(Transacao.usuario)
-        )
+        
+        if mes_id:
+            stmt = stmt.where(Transacao.mes_id == mes_id)
+        
         if periodo:
             data_inicio, data_fim = periodo
             stmt = stmt.where(and_(
                 Transacao.data >= data_inicio,
                 Transacao.data <= data_fim
             ))
+        
+        stmt = stmt.options(
+            selectinload(Transacao.categoria),
+            selectinload(Transacao.usuario)
+        )
         stmt = stmt.order_by(Transacao.data.desc())
         result = await self.session.execute(stmt)
         return result.scalars().all()
@@ -146,8 +170,8 @@ class TransacaoRepository:
         await self.session.commit()
         return True
 
-    async def total_por_grupo(self, grupo_id: str, periodo: Optional[Tuple[datetime, datetime]] = None) -> dict:
-        transacoes = await self.listar_por_grupo(grupo_id, periodo)
+    async def total_por_grupo(self, grupo_id: str, mes_id: Optional[int] = None) -> dict:
+        transacoes = await self.listar_por_grupo(grupo_id, mes_id=mes_id)
 
         total_receitas = sum(t.valor for t in transacoes if t.tipo == 'R')
         total_despesas = sum(t.valor for t in transacoes if t.tipo == 'D')

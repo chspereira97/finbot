@@ -61,8 +61,367 @@ async def enviar_mensagem(telefone: str, texto: str):
         logger.error(f"❌ Erro ao enviar mensagem: {e}")
 
 
+# PARTE 2 VEM A SEGUIR...
 # ============================================================
-# COMANDOS E FLUXO DE CONVERSA
+# PARTE 2 - COMANDOS E FLUXO DE CONVERSA
+# ============================================================
+
+async def processar_comando(remetente: str, grupo_id: str, texto: str) -> Optional[str]:
+    texto = texto.strip()
+    partes = texto.split()
+
+    if texto == "/total":
+        return await cmd_total(grupo_id)
+
+    if texto == "/resumo":
+        return await cmd_resumo(grupo_id)
+
+    if texto == "/ajuda":
+        return await cmd_ajuda()
+
+    if texto.startswith("/ultimos"):
+        if len(partes) == 2:
+            try:
+                n = int(partes[1])
+                return await cmd_ultimos(grupo_id, n)
+            except ValueError:
+                return "⚠️ Use /ultimos NUMERO (ex: /ultimos 5)"
+        return "⚠️ Use /ultimos NUMERO (ex: /ultimos 5)"
+
+    if texto.startswith("/apagar"):
+        if len(partes) == 2:
+            try:
+                transacao_id = int(partes[1])
+                return await cmd_apagar(remetente, transacao_id)
+            except ValueError:
+                return "⚠️ Use /apagar ID (ex: /apagar 5)"
+        return "⚠️ Use /apagar ID (ex: /apagar 5)"
+
+    if texto.startswith("/editar"):
+        if len(partes) == 3:
+            try:
+                transacao_id = int(partes[1])
+                novo_valor = float(partes[2].replace(',', '.'))
+                return await cmd_editar(remetente, transacao_id, novo_valor)
+            except ValueError:
+                return "⚠️ Use /editar ID VALOR (ex: /editar 5 30.00)"
+        return "⚠️ Use /editar ID VALOR (ex: /editar 5 30.00)"
+
+    if texto.startswith("/meu_nome"):
+        if len(partes) >= 2:
+            nome = " ".join(partes[1:])
+            return await cmd_meu_nome(remetente, grupo_id, nome)
+        return "⚠️ Use /meu_nome SEU_NOME (ex: /meu_nome Carlos)"
+
+    return None
+
+
+async def cmd_ajuda() -> str:
+    """Comando /ajuda - Mostra todos os comandos disponíveis"""
+    return (
+        "🤖 *FinBot - Assistente Financeiro*\n\n"
+        "📌 *Comandos disponíveis:*\n\n"
+        "📝 *Registrar gastos:*\n"
+        "  `padaria 25,50` → Registra uma despesa\n"
+        "  `salário 2500` → Registra uma receita\n\n"
+        "📊 *Consultar:*\n"
+        "  `/total` → Saldo do mês atual\n"
+        "  `/resumo` → Resumo do mês atual\n"
+        "  `/ultimos 5` → Últimas 5 transações\n\n"
+        "✏️ *Gerenciar:*\n"
+        "  `/editar ID VALOR` → Edita uma transação\n"
+        "  `/apagar ID` → Apaga uma transação\n"
+        "  `/meu_nome NOME` → Define seu nome\n\n"
+        "❓ *Ajuda:*\n"
+        "  `/ajuda` → Mostra esta mensagem\n\n"
+        "💬 *\"A melhor maneira de prever o futuro é criá-lo.\"* — Peter Drucker"
+    )
+
+
+async def cmd_total(grupo_id: str) -> str:
+    async with AsyncSessionLocal() as session:
+        mes_repo = MesRepository(session)
+        mes_atual = await mes_repo.get_or_create_mes_atual(grupo_id)
+        
+        transacao_repo = TransacaoRepository(session)
+        totais = await transacao_repo.total_por_grupo(grupo_id, mes_id=mes_atual.id)
+        
+        return (
+            f"💰 *Saldo do mês:* R$ {totais['saldo']:.2f}\n"
+            f"📈 *Receitas:* R$ {totais['receitas']:.2f}\n"
+            f"📉 *Despesas:* R$ {totais['despesas']:.2f}"
+        )
+
+
+async def cmd_resumo(grupo_id: str) -> str:
+    async with AsyncSessionLocal() as session:
+        mes_repo = MesRepository(session)
+        mes_atual = await mes_repo.get_or_create_mes_atual(grupo_id)
+        
+        transacao_repo = TransacaoRepository(session)
+        transacoes = await transacao_repo.listar_por_grupo(grupo_id, mes_id=mes_atual.id)
+
+        if not transacoes:
+            return f"📭 Nenhuma transação registrada em {mes_atual.mes:02d}/{mes_atual.ano}."
+
+        categorias_despesas = defaultdict(float)
+        categorias_receitas = defaultdict(float)
+
+        for t in transacoes:
+            nome_categoria = t.categoria.nome if t.categoria else "Sem categoria"
+            nome_usuario = t.usuario.nome if t.usuario.nome else t.usuario.telefone
+            forma = t.forma_pagamento if t.forma_pagamento else "Não informado"
+
+            if t.tipo == 'D':
+                chave = f"{nome_usuario} - {nome_categoria}"
+                categorias_despesas[chave] += t.valor
+            elif t.tipo == 'R':
+                chave = f"{nome_usuario} - {nome_categoria}"
+                categorias_receitas[chave] += t.valor
+
+        resposta = f"📊 *Resumo do mês {mes_atual.mes:02d}/{mes_atual.ano}:*\n\n"
+
+        if categorias_despesas:
+            resposta += "📉 *Despesas:*\n"
+            for chave, valor in sorted(categorias_despesas.items(), key=lambda x: x[1], reverse=True):
+                resposta += f"  {chave}: R$ {valor:.2f}\n"
+
+        if categorias_receitas:
+            resposta += "\n📈 *Receitas:*\n"
+            for chave, valor in sorted(categorias_receitas.items(), key=lambda x: x[1], reverse=True):
+                resposta += f"  {chave}: R$ {valor:.2f}\n"
+
+        totais = await transacao_repo.total_por_grupo(grupo_id, mes_id=mes_atual.id)
+        resposta += f"\n💰 *Saldo do mês:* R$ {totais['saldo']:.2f}"
+
+        return resposta
+
+
+async def cmd_ultimos(grupo_id: str, n: int) -> str:
+    if n <= 0:
+        return "⚠️ Use um número positivo (ex: /ultimos 5)"
+    if n > 20:
+        n = 20
+
+    async with AsyncSessionLocal() as session:
+        mes_repo = MesRepository(session)
+        mes_atual = await mes_repo.get_or_create_mes_atual(grupo_id)
+        
+        transacao_repo = TransacaoRepository(session)
+        transacoes = await transacao_repo.listar_por_grupo(grupo_id, mes_id=mes_atual.id)
+
+        if not transacoes:
+            return f"📭 Nenhuma transação registrada em {mes_atual.mes:02d}/{mes_atual.ano}."
+
+        ultimas = transacoes[:n]
+        resposta = f"📋 *Últimas {len(ultimas)} transações:*\n\n"
+        for i, t in enumerate(ultimas, 1):
+            tipo_emoji = "📈" if t.tipo == 'R' else "📉"
+            data_str = t.data.strftime("%d/%m/%Y")
+            nome_usuario = t.usuario.nome if t.usuario.nome else t.usuario.telefone
+            nome_categoria = t.categoria.nome if t.categoria else "Sem categoria"
+            forma = t.forma_pagamento if t.forma_pagamento else "Não informado"
+            resposta += f"{i}. {tipo_emoji} R$ {t.valor:.2f} | {nome_usuario} - {nome_categoria} | {forma} | {data_str}\n"
+        return resposta
+
+
+async def cmd_apagar(telefone: str, transacao_id: int) -> str:
+    async with AsyncSessionLocal() as session:
+        usuario_repo = UsuarioRepository(session)
+        usuario = await usuario_repo.get_or_create_by_telefone(telefone, "")
+
+        stmt = select(Transacao).where(
+            Transacao.id == transacao_id,
+            Transacao.usuario_id == usuario.id
+        )
+        result = await session.execute(stmt)
+        transacao = result.scalar_one_or_none()
+
+        if not transacao:
+            return f"❌ Transação {transacao_id} não encontrada."
+
+        transacao_repo = TransacaoRepository(session)
+        deletado = await transacao_repo.deletar(transacao_id)
+        if deletado:
+            return f"✅ Transação {transacao_id} apagada com sucesso!"
+        return f"❌ Erro ao apagar transação {transacao_id}."
+
+
+async def cmd_editar(telefone: str, transacao_id: int, novo_valor: float) -> str:
+    if novo_valor <= 0:
+        return "⚠️ O valor deve ser positivo."
+
+    async with AsyncSessionLocal() as session:
+        usuario_repo = UsuarioRepository(session)
+        usuario = await usuario_repo.get_or_create_by_telefone(telefone, "")
+
+        stmt = select(Transacao).where(
+            Transacao.id == transacao_id,
+            Transacao.usuario_id == usuario.id
+        )
+        result = await session.execute(stmt)
+        transacao = result.scalar_one_or_none()
+
+        if not transacao:
+            return f"❌ Transação {transacao_id} não encontrada."
+
+        transacao.valor = novo_valor
+        await session.commit()
+        return f"✅ Transação {transacao_id} atualizada: R$ {novo_valor:.2f}"
+
+
+async def cmd_meu_nome(telefone: str, grupo_id: str, nome: str) -> str:
+    async with AsyncSessionLocal() as session:
+        usuario_repo = UsuarioRepository(session)
+        usuario = await usuario_repo.get_or_create_by_telefone(telefone, grupo_id)
+        usuario.nome = nome
+        await session.commit()
+        return f"✅ Nome atualizado para *{nome}*!"
+
+
+async def processar_resposta_conversa(remetente: str, grupo_id: str, texto: str) -> Optional[str]:
+    """Processa respostas de conversa (forma de pagamento, parcelas, data)"""
+    estado = conversation_manager.get_estado(remetente)
+    dados = conversation_manager.get_dados(remetente)
+
+    if estado == ESTADO_AGUARDANDO_FORMA:
+        if conversation_manager.is_forma_pagamento_valida(texto):
+            forma = conversation_manager.normalizar_forma(texto)
+            dados['forma_pagamento'] = forma
+            
+            if conversation_manager.eh_credito(forma):
+                conversation_manager.set_estado(remetente, ESTADO_AGUARDANDO_PARCELAS, dados)
+                return "Em quantas parcelas? (1 = à vista)"
+            else:
+                # Pix, Débito, Dinheiro - registra direto
+                return await finalizar_transacao(remetente, grupo_id, dados)
+        else:
+            return "⚠️ Forma de pagamento inválida. Use: pix, credito, debito, dinheiro"
+
+    elif estado == ESTADO_AGUARDANDO_PARCELAS:
+        if conversation_manager.is_parcela_valida(texto):
+            parcelas = int(texto)
+            dados['parcelas'] = parcelas
+            
+            if parcelas == 1:
+                conversation_manager.set_estado(remetente, ESTADO_AGUARDANDO_DATA, dados)
+                return "Qual a data do pagamento? (dd/mm/aaaa)"
+            else:
+                conversation_manager.set_estado(remetente, ESTADO_AGUARDANDO_DATA, dados)
+                return "Qual a data do primeiro pagamento? (dd/mm/aaaa)"
+        else:
+            return "⚠️ Número de parcelas inválido. Digite um número (ex: 1, 2, 3...)"
+
+    elif estado == ESTADO_AGUARDANDO_DATA:
+        data_vencimento = conversation_manager.is_data_valida(texto)
+        if data_vencimento:
+            dados['data_vencimento'] = data_vencimento
+            return await finalizar_transacao(remetente, grupo_id, dados)
+        else:
+            return "⚠️ Data inválida. Use o formato dd/mm/aaaa (ex: 10/08/2026)"
+
+    return None
+
+
+async def finalizar_transacao(remetente: str, grupo_id: str, dados: dict) -> str:
+    """Finaliza o registro da transação com todas as informações coletadas"""
+    forma = dados.get('forma_pagamento')
+    parcelas = dados.get('parcelas', 1)
+    data_vencimento = dados.get('data_vencimento')
+    texto = dados.get('texto_original', '')
+
+    # Extrai as informações da mensagem original
+    info = extrair_info_mensagem(texto)
+    
+    if info['valor'] is None:
+        conversation_manager.resetar(remetente)
+        return "⚠️ Erro: não consegui identificar o valor da transação."
+
+    if info['categoria'] is None:
+        conversation_manager.resetar(remetente)
+        return "⚠️ Erro: não consegui identificar a categoria."
+
+    async with AsyncSessionLocal() as session:
+        usuario_repo = UsuarioRepository(session)
+        usuario = await usuario_repo.get_or_create_by_telefone(remetente, grupo_id)
+
+        categoria_repo = CategoriaRepository(session)
+        categoria = await categoria_repo.get_or_create_by_nome(
+            info['categoria'],
+            info['tipo'],
+            usuario.id
+        )
+
+        mes_repo = MesRepository(session)
+        mes_atual = await mes_repo.get_or_create_mes_atual(grupo_id)
+
+        transacao_repo = TransacaoRepository(session)
+
+        data = info['data'] if info['data'] else datetime.now()
+
+        # Se for crédito parcelado, cria múltiplas transações
+        if forma == "credito" and parcelas > 1:
+            valor_parcela = round(info['valor'] / parcelas, 2)
+            transacao_original = None
+            primeira_data = data_vencimento if data_vencimento else data
+            
+            for i in range(parcelas):
+                # Calcula a data de vencimento para cada parcela
+                if data_vencimento:
+                    data_parcela = data_vencimento + timedelta(days=30 * i)
+                else:
+                    data_parcela = data + timedelta(days=30 * (i + 1))
+                
+                transacao = await transacao_repo.criar(
+                    usuario_id=usuario.id,
+                    categoria_id=categoria.id,
+                    valor=valor_parcela,
+                    descricao=f"{info['categoria']} ({i+1}/{parcelas})",
+                    tipo=info['tipo'],
+                    grupo_id=grupo_id,
+                    mes_id=mes_atual.id,
+                    forma_pagamento=forma,
+                    parcelas=parcelas,
+                    parcela_atual=i+1,
+                    data_vencimento=data_parcela,
+                    transacao_original_id=transacao_original.id if transacao_original else None,
+                    data=data_parcela if data_vencimento else data
+                )
+                if i == 0:
+                    transacao_original = transacao
+                logger.info(f"✅ Parcela {i+1}/{parcelas} salva: ID {transacao.id}")
+
+            resposta = (
+                f"✅ Despesa registrada com sucesso!\n"
+                f"📌 Categoria: {categoria.nome}\n"
+                f"💳 Forma: {forma.capitalize()} ({parcelas}x)\n"
+                f"💰 Total: R$ {info['valor']:.2f} (R$ {valor_parcela:.2f}/parcela)\n"
+                f"📅 Primeira parcela: {data_vencimento.strftime('%d/%m/%Y') if data_vencimento else data.strftime('%d/%m/%Y')}"
+            )
+        else:
+            # Pagamento único (Pix, Débito, Dinheiro, Crédito à vista)
+            transacao = await transacao_repo.criar(
+                usuario_id=usuario.id,
+                categoria_id=categoria.id,
+                valor=info['valor'],
+                descricao=texto[:100],
+                tipo=info['tipo'],
+                grupo_id=grupo_id,
+                mes_id=mes_atual.id,
+                forma_pagamento=forma,
+                parcelas=parcelas,
+                parcela_atual=1,
+                data_vencimento=data_vencimento if forma == "credito" else data,
+                data=data
+            )
+            logger.info(f"✅ Transação salva: ID {transacao.id}")
+
+            tipo_texto = "Receita" if info['tipo'] == 'R' else "Despesa"
+            data_exibicao = data_vencimento if forma == "credito" else data
+            data_formatada = data_exibicao.strftime
+cat >> ~/finbot/webhook_receiver.py << 'EOF'
+# ============================================================
+# PARTE 2 - COMANDOS E FLUXO DE CONVERSA
 # ============================================================
 
 async def processar_comando(remetente: str, grupo_id: str, texto: str) -> Optional[str]:
