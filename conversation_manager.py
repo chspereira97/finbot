@@ -4,7 +4,6 @@ conversation_manager.py - Gerencia estados de conversa do FinBot
 
 from datetime import datetime, timedelta
 from typing import Optional, Dict
-import asyncio
 
 # Estados possíveis
 ESTADO_AGUARDANDO_FORMA = "aguardando_forma"
@@ -26,6 +25,10 @@ class ConversationManager:
 
     def get_dados(self, telefone: str) -> dict:
         return self.conversas.get(telefone, {}).get('dados', {})
+
+    def get_estado_completo(self, telefone: str) -> dict:
+        """Retorna o estado completo da conversa para debug"""
+        return self.conversas.get(telefone, {})
 
     def set_estado(self, telefone: str, estado: str, dados: Optional[dict] = None):
         self.conversas[telefone] = {

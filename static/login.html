@@ -21,12 +21,12 @@
                     <div class="card-body">
                         <form id="loginForm">
                             <div class="mb-3">
-                                <label for="email" class="form-label">Email</label>
-                                <input type="email" class="form-control" id="email" placeholder="seu@email.com" required>
+                                <label for="chaveLogin" class="form-label">Chave de Login</label>
+                                <input type="text" class="form-control" id="chaveLogin" placeholder="Ex: FIN-ABC123" required>
                             </div>
                             <div class="mb-3">
-                                <label for="password" class="form-label">Senha</label>
-                                <input type="password" class="form-control" id="password" placeholder="****" required>
+                                <label for="chaveSenha" class="form-label">Chave de Senha</label>
+                                <input type="password" class="form-control" id="chaveSenha" placeholder="Ex: FIN-XYZ789" required>
                             </div>
                             <div id="errorMessage" class="alert alert-danger d-none"></div>
                             <button type="submit" class="btn btn-primary w-100">Entrar</button>
@@ -39,20 +39,19 @@
     <script>
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
+            const chaveLogin = document.getElementById('chaveLogin').value.trim();
+            const chaveSenha = document.getElementById('chaveSenha').value.trim();
             const errorDiv = document.getElementById('errorMessage');
             errorDiv.classList.add('d-none');
 
             try {
-                const formData = new URLSearchParams();
-                formData.append('username', email);
-                formData.append('password', password);
-
                 const response = await fetch('/api/login', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: formData
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chave_login: chaveLogin,
+                        chave_senha: chaveSenha
+                    })
                 });
 
                 if (response.ok) {
@@ -62,7 +61,7 @@
                     window.location.href = '/dashboard/';
                 } else {
                     const error = await response.json();
-                    errorDiv.textContent = error.detail || 'Erro ao fazer login';
+                    errorDiv.textContent = error.detail || 'Chaves inválidas';
                     errorDiv.classList.remove('d-none');
                 }
             } catch (err) {

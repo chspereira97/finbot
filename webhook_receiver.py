@@ -1,57 +1,47 @@
 """
 webhook_receiver.py - Webhook do FinBot
-Recebe mensagens do WhatsApp e processa com forma de pagamento e parcelamento
 """
 
-from fastapi import FastAPI, Request, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import httpx
 import re
-import bcrypt
-from jose import jwt
 import os
 from datetime import datetime, timedelta
-from collections import defaultdict
 from typing import Optional
 
-from sqlalchemy import select, and_, func
-
-from database import AsyncSessionLocal, init_db, Usuario, Transacao, Mes
-from repositories import (
-    UsuarioRepository, 
-    CategoriaRepository, 
-    TransacaoRepository,
-    MesRepository
-)
+from database import AsyncSessionLocal, init_db
+from repositories import UsuarioRepository, CategoriaRepository, TransacaoRepository, MesRepository
 from message_parser import extrair_info_mensagem
-from conversation_manager import conversation_manager, ESTADO_AGUARDANDO_FORMA, ESTADO_AGUARDANDO_PARCELAS, ESTADO_AGUARDANDO_DATA, ESTADO_NORMAL
-
-# ============================================================
-# CONFIGURAÇÃO
-# ============================================================
+from conversation_manager import (
+    conversation_manager,
+    ESTADO_AGUARDANDO_FORMA,
+    ESTADO_AGUARDANDO_PARCELAS,
+    ESTADO_AGUARDANDO_DATA,
+    ESTADO_NORMAL
+)
+from commands import (
+    cmd_total,
+    cmd_resumo,
+    cmd_ultimos,
+    cmd_apagar,
+    cmd_editar,
+    cmd_meu_nome,
+    cmd_chaves,
+    cmd_ajuda
+)
+from dashboard_api import router as dashboard_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="FinBot")
 
-# 🔧 CONFIGURAÇÕES DA EVOLUTION API
 INSTANCIA = "finbot"
-API_KEY = "A606DD7229DA-4DCF-9856-91D2963A33F0"
-
-# 🔧 JWT
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "finbot_secret_key_change_this_in_production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
-
-# 🔧 TIMEOUT PARA RESPOSTA (em minutos)
-TIMEOUT_MINUTOS = 5
+API_KEY = "D3C7E34BD4DF-44FE-85A7-ACD98CC1B0AD"
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,9 +55,7 @@ app.add_middleware(
 # DASHBOARD - ARQUIVOS ESTÁTICOS
 # ============================================================
 
-# Cria a pasta static se não existir
 os.makedirs("static", exist_ok=True)
-
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/login")
@@ -82,177 +70,10 @@ async def dashboard_page():
 async def dashboard_page_slash():
     return FileResponse("static/dashboard.html")
 
-# ============================================================
-# FUNÇÕES DE AUTENTICAÇÃO JWT
-# ============================================================
-
-def criar_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-async def obter_usuario_por_email(email: str):
-    async with AsyncSessionLocal() as session:
-        stmt = select(Usuario).where(Usuario.email == email)
-        result = await session.execute(stmt)
-        return result.scalar_one_or_none()
-
-async def obter_usuario_por_id(usuario_id: int):
-    async with AsyncSessionLocal() as session:
-        stmt = select(Usuario).where(Usuario.id == usuario_id)
-        result = await session.execute(stmt)
-        return result.scalar_one_or_none()
-
-async def get_current_user(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Token inválido ou expirado",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        usuario_id: int = payload.get("sub")
-        if usuario_id is None:
-            raise credentials_exception
-    except jwt.JWTError:
-        raise credentials_exception
-
-    usuario = await obter_usuario_por_id(usuario_id)
-    if usuario is None:
-        raise credentials_exception
-    return usuario
+app.include_router(dashboard_router)
 
 # ============================================================
-# API DO DASHBOARD
-# ============================================================
-
-@app.post("/api/login")
-async def api_login(form_data: OAuth2PasswordRequestForm = Depends()):
-    usuario = await obter_usuario_por_email(form_data.username)
-    if not usuario:
-        raise HTTPException(status_code=401, detail="Email inválido")
-
-    if not bcrypt.checkpw(form_data.password.encode('utf-8'), usuario.senha_hash.encode('utf-8')):
-        raise HTTPException(status_code=401, detail="Senha inválida")
-
-    token = criar_token({"sub": str(usuario.id)})
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "usuario": {
-            "id": usuario.id,
-            "nome": usuario.nome,
-            "email": usuario.email,
-            "grupo_id": usuario.grupo_id
-        }
-    }
-
-@app.get("/api/transacoes")
-async def api_transacoes(
-    mes: Optional[int] = None,
-    ano: Optional[int] = None,
-    usuario: Usuario = Depends(get_current_user)
-):
-    async with AsyncSessionLocal() as session:
-        transacao_repo = TransacaoRepository(session)
-        
-        if mes is None or ano is None:
-            agora = datetime.now()
-            mes = agora.month
-            ano = agora.year
-        
-        transacoes = await transacao_repo.listar_por_grupo(usuario.grupo_id)
-        
-        resultado = []
-        for t in transacoes:
-            if t.data.month == mes and t.data.year == ano:
-                resultado.append({
-                    "id": t.id,
-                    "valor": t.valor,
-                    "descricao": t.descricao,
-                    "tipo": t.tipo,
-                    "categoria": t.categoria.nome if t.categoria else "Sem categoria",
-                    "forma_pagamento": t.forma_pagamento,
-                    "data": t.data.strftime("%d/%m/%Y"),
-                    "parcelas": t.parcelas,
-                    "parcela_atual": t.parcela_atual,
-                })
-        
-        return resultado
-
-@app.get("/api/resumo")
-async def api_resumo(
-    mes: Optional[int] = None,
-    ano: Optional[int] = None,
-    usuario: Usuario = Depends(get_current_user)
-):
-    async with AsyncSessionLocal() as session:
-        if mes is None or ano is None:
-            agora = datetime.now()
-            mes = agora.month
-            ano = agora.year
-        
-        transacao_repo = TransacaoRepository(session)
-        transacoes = await transacao_repo.listar_por_grupo(usuario.grupo_id)
-        
-        total_receitas = 0
-        total_despesas = 0
-        categorias = {}
-        
-        for t in transacoes:
-            if t.data.month == mes and t.data.year == ano:
-                if t.tipo == 'R':
-                    total_receitas += t.valor
-                else:
-                    total_despesas += t.valor
-                    nome_cat = t.categoria.nome if t.categoria else "Sem categoria"
-                    categorias[nome_cat] = categorias.get(nome_cat, 0) + t.valor
-        
-        return {
-            "receitas": total_receitas,
-            "despesas": total_despesas,
-            "saldo": total_receitas - total_despesas,
-            "categorias": [{"nome": k, "valor": v} for k, v in categorias.items()]
-        }
-
-@app.get("/api/evolucao")
-async def api_evolucao(usuario: Usuario = Depends(get_current_user)):
-    async with AsyncSessionLocal() as session:
-        transacao_repo = TransacaoRepository(session)
-        transacoes = await transacao_repo.listar_por_grupo(usuario.grupo_id)
-        
-        meses = {}
-        for t in transacoes:
-            chave = f"{t.data.year}-{t.data.month:02d}"
-            if chave not in meses:
-                meses[chave] = {"receitas": 0, "despesas": 0}
-            if t.tipo == 'R':
-                meses[chave]["receitas"] += t.valor
-            else:
-                meses[chave]["despesas"] += t.valor
-        
-        chaves_ordenadas = sorted(meses.keys())
-        return {
-            "meses": chaves_ordenadas,
-            "receitas": [meses[k]["receitas"] for k in chaves_ordenadas],
-            "despesas": [meses[k]["despesas"] for k in chaves_ordenadas]
-        }
-
-@app.get("/api/me")
-async def api_me(usuario: Usuario = Depends(get_current_user)):
-    return {
-        "id": usuario.id,
-        "nome": usuario.nome,
-        "email": usuario.email,
-        "grupo_id": usuario.grupo_id
-    }
-
-# ============================================================
-# WEBHOOK DO WHATSAPP
+# FUNÇÕES AUXILIARES
 # ============================================================
 
 async def enviar_mensagem(telefone: str, texto: str):
@@ -279,6 +100,8 @@ async def processar_comando(remetente: str, grupo_id: str, texto: str) -> Option
         return await cmd_resumo(grupo_id)
     if texto == "/ajuda":
         return await cmd_ajuda()
+    if texto == "/chaves":
+        return await cmd_chaves(remetente, grupo_id)
     if texto.startswith("/ultimos"):
         if len(partes) == 2:
             try:
@@ -311,168 +134,9 @@ async def processar_comando(remetente: str, grupo_id: str, texto: str) -> Option
         return "⚠️ Use /meu_nome SEU_NOME (ex: /meu_nome Carlos)"
     return None
 
-async def cmd_ajuda() -> str:
-    return (
-        "🤖 *FinBot - Assistente Financeiro*\n\n"
-        "📌 *Comandos disponíveis:*\n\n"
-        "📝 *Registrar gastos:*\n"
-        "  `padaria 25,50` → Registra uma despesa\n"
-        "  `salário 2500` → Registra uma receita\n\n"
-        "📊 *Consultar:*\n"
-        "  `/total` → Saldo do mês atual\n"
-        "  `/resumo` → Resumo do mês atual\n"
-        "  `/ultimos 5` → Últimas 5 transações\n\n"
-        "✏️ *Gerenciar:*\n"
-        "  `/editar ID VALOR` → Edita uma transação\n"
-        "  `/apagar ID` → Apaga uma transação\n"
-        "  `/meu_nome NOME` → Define seu nome\n\n"
-        "❓ *Ajuda:*\n"
-        "  `/ajuda` → Mostra esta mensagem\n\n"
-        "💬 *\"A melhor maneira de prever o futuro é criá-lo.\"* — Peter Drucker"
-    )
-
-async def cmd_total(grupo_id: str) -> str:
-    async with AsyncSessionLocal() as session:
-        mes_repo = MesRepository(session)
-        mes_atual = await mes_repo.get_or_create_mes_atual(grupo_id)
-        transacao_repo = TransacaoRepository(session)
-        totais = await transacao_repo.total_por_grupo(grupo_id, mes_id=mes_atual.id)
-        return (
-            f"💰 *Saldo do mês:* R$ {totais['saldo']:.2f}\n"
-            f"📈 *Receitas:* R$ {totais['receitas']:.2f}\n"
-            f"📉 *Despesas:* R$ {totais['despesas']:.2f}"
-        )
-
-async def cmd_resumo(grupo_id: str) -> str:
-    async with AsyncSessionLocal() as session:
-        mes_repo = MesRepository(session)
-        mes_atual = await mes_repo.get_or_create_mes_atual(grupo_id)
-        transacao_repo = TransacaoRepository(session)
-        transacoes = await transacao_repo.listar_por_grupo(grupo_id, mes_id=mes_atual.id)
-        if not transacoes:
-            return f"📭 Nenhuma transação registrada em {mes_atual.mes:02d}/{mes_atual.ano}."
-        categorias_despesas = defaultdict(float)
-        categorias_receitas = defaultdict(float)
-        for t in transacoes:
-            nome_categoria = t.categoria.nome if t.categoria else "Sem categoria"
-            nome_usuario = t.usuario.nome if t.usuario.nome else t.usuario.telefone
-            forma = t.forma_pagamento if t.forma_pagamento else "Não informado"
-            if t.tipo == 'D':
-                chave = f"{nome_usuario} - {nome_categoria}"
-                categorias_despesas[chave] += t.valor
-            elif t.tipo == 'R':
-                chave = f"{nome_usuario} - {nome_categoria}"
-                categorias_receitas[chave] += t.valor
-        resposta = f"📊 *Resumo do mês {mes_atual.mes:02d}/{mes_atual.ano}:*\n\n"
-        if categorias_despesas:
-            resposta += "📉 *Despesas:*\n"
-            for chave, valor in sorted(categorias_despesas.items(), key=lambda x: x[1], reverse=True):
-                resposta += f"  {chave}: R$ {valor:.2f}\n"
-        if categorias_receitas:
-            resposta += "\n📈 *Receitas:*\n"
-            for chave, valor in sorted(categorias_receitas.items(), key=lambda x: x[1], reverse=True):
-                resposta += f"  {chave}: R$ {valor:.2f}\n"
-        totais = await transacao_repo.total_por_grupo(grupo_id, mes_id=mes_atual.id)
-        resposta += f"\n💰 *Saldo do mês:* R$ {totais['saldo']:.2f}"
-        return resposta
-
-async def cmd_ultimos(grupo_id: str, n: int) -> str:
-    if n <= 0:
-        return "⚠️ Use um número positivo (ex: /ultimos 5)"
-    if n > 20:
-        n = 20
-    async with AsyncSessionLocal() as session:
-        mes_repo = MesRepository(session)
-        mes_atual = await mes_repo.get_or_create_mes_atual(grupo_id)
-        transacao_repo = TransacaoRepository(session)
-        transacoes = await transacao_repo.listar_por_grupo(grupo_id, mes_id=mes_atual.id)
-        if not transacoes:
-            return f"📭 Nenhuma transação registrada em {mes_atual.mes:02d}/{mes_atual.ano}."
-        ultimas = transacoes[:n]
-        resposta = f"📋 *Últimas {len(ultimas)} transações:*\n\n"
-        for i, t in enumerate(ultimas, 1):
-            tipo_emoji = "📈" if t.tipo == 'R' else "📉"
-            data_str = t.data.strftime("%d/%m/%Y")
-            nome_usuario = t.usuario.nome if t.usuario.nome else t.usuario.telefone
-            nome_categoria = t.categoria.nome if t.categoria else "Sem categoria"
-            forma = t.forma_pagamento if t.forma_pagamento else "Não informado"
-            resposta += f"{i}. {tipo_emoji} R$ {t.valor:.2f} | {nome_usuario} - {nome_categoria} | {forma} | {data_str}\n"
-        return resposta
-
-async def cmd_apagar(telefone: str, transacao_id: int) -> str:
-    async with AsyncSessionLocal() as session:
-        usuario_repo = UsuarioRepository(session)
-        usuario = await usuario_repo.get_or_create_by_telefone(telefone, "")
-        stmt = select(Transacao).where(Transacao.id == transacao_id, Transacao.usuario_id == usuario.id)
-        result = await session.execute(stmt)
-        transacao = result.scalar_one_or_none()
-        if not transacao:
-            return f"❌ Transação {transacao_id} não encontrada."
-        transacao_repo = TransacaoRepository(session)
-        deletado = await transacao_repo.deletar(transacao_id)
-        if deletado:
-            return f"✅ Transação {transacao_id} apagada com sucesso!"
-        return f"❌ Erro ao apagar transação {transacao_id}."
-
-async def cmd_editar(telefone: str, transacao_id: int, novo_valor: float) -> str:
-    if novo_valor <= 0:
-        return "⚠️ O valor deve ser positivo."
-    async with AsyncSessionLocal() as session:
-        usuario_repo = UsuarioRepository(session)
-        usuario = await usuario_repo.get_or_create_by_telefone(telefone, "")
-        stmt = select(Transacao).where(Transacao.id == transacao_id, Transacao.usuario_id == usuario.id)
-        result = await session.execute(stmt)
-        transacao = result.scalar_one_or_none()
-        if not transacao:
-            return f"❌ Transação {transacao_id} não encontrada."
-        transacao.valor = novo_valor
-        await session.commit()
-        return f"✅ Transação {transacao_id} atualizada: R$ {novo_valor:.2f}"
-
-async def cmd_meu_nome(telefone: str, grupo_id: str, nome: str) -> str:
-    async with AsyncSessionLocal() as session:
-        usuario_repo = UsuarioRepository(session)
-        usuario = await usuario_repo.get_or_create_by_telefone(telefone, grupo_id)
-        usuario.nome = nome
-        await session.commit()
-        return f"✅ Nome atualizado para *{nome}*!"
-
-async def processar_resposta_conversa(remetente: str, grupo_id: str, texto: str) -> Optional[str]:
-    estado = conversation_manager.get_estado(remetente)
-    dados = conversation_manager.get_dados(remetente)
-
-    if estado == ESTADO_AGUARDANDO_FORMA:
-        if conversation_manager.is_forma_pagamento_valida(texto):
-            forma = conversation_manager.normalizar_forma(texto)
-            dados['forma_pagamento'] = forma
-            if conversation_manager.eh_credito(forma):
-                conversation_manager.set_estado(remetente, ESTADO_AGUARDANDO_PARCELAS, dados)
-                return "Em quantas parcelas? (1 = à vista)"
-            else:
-                return await finalizar_transacao(remetente, grupo_id, dados)
-        else:
-            return "⚠️ Forma de pagamento inválida. Use: pix, credito, debito, dinheiro"
-
-    elif estado == ESTADO_AGUARDANDO_PARCELAS:
-        if conversation_manager.is_parcela_valida(texto):
-            parcelas = int(texto)
-            dados['parcelas'] = parcelas
-            conversation_manager.set_estado(remetente, ESTADO_AGUARDANDO_DATA, dados)
-            return "Qual a data do pagamento? (dd/mm/aaaa)"
-        else:
-            return "⚠️ Número de parcelas inválido. Digite um número (ex: 1, 2, 3...)"
-
-    elif estado == ESTADO_AGUARDANDO_DATA:
-        data_vencimento = conversation_manager.is_data_valida(texto)
-        if data_vencimento:
-            dados['data_vencimento'] = data_vencimento
-            return await finalizar_transacao(remetente, grupo_id, dados)
-        else:
-            return "⚠️ Data inválida. Use o formato dd/mm/aaaa (ex: 10/08/2026)"
-
-    return None
 
 async def finalizar_transacao(remetente: str, grupo_id: str, dados: dict) -> str:
+    """Finaliza o registro da transação com todas as informações coletadas"""
     forma = dados.get('forma_pagamento')
     parcelas = dados.get('parcelas', 1)
     data_vencimento = dados.get('data_vencimento')
@@ -563,10 +227,50 @@ async def finalizar_transacao(remetente: str, grupo_id: str, dados: dict) -> str
     conversation_manager.resetar(remetente)
     return resposta
 
+
+async def processar_resposta_conversa(remetente: str, grupo_id: str, texto: str) -> Optional[str]:
+    estado = conversation_manager.get_estado(remetente)
+    dados = conversation_manager.get_dados(remetente)
+
+    logger.info(f"🔄 Processando resposta de conversa: '{texto}', estado: {estado}")
+
+    if estado == ESTADO_AGUARDANDO_FORMA:
+        if conversation_manager.is_forma_pagamento_valida(texto):
+            forma = conversation_manager.normalizar_forma(texto)
+            dados['forma_pagamento'] = forma
+            if conversation_manager.eh_credito(forma):
+                conversation_manager.set_estado(remetente, ESTADO_AGUARDANDO_PARCELAS, dados)
+                return "Em quantas parcelas? (1 = à vista)"
+            else:
+                return await finalizar_transacao(remetente, grupo_id, dados)
+        else:
+            return "⚠️ Forma de pagamento inválida. Use: pix, credito, debito, dinheiro"
+
+    elif estado == ESTADO_AGUARDANDO_PARCELAS:
+        if conversation_manager.is_parcela_valida(texto):
+            parcelas = int(texto)
+            dados['parcelas'] = parcelas
+            conversation_manager.set_estado(remetente, ESTADO_AGUARDANDO_DATA, dados)
+            return "Qual a data do pagamento? (dd/mm/aaaa)"
+        else:
+            return "⚠️ Número de parcelas inválido. Digite um número (ex: 1, 2, 3...)"
+
+    elif estado == ESTADO_AGUARDANDO_DATA:
+        data_vencimento = conversation_manager.is_data_valida(texto)
+        if data_vencimento:
+            dados['data_vencimento'] = data_vencimento
+            return await finalizar_transacao(remetente, grupo_id, dados)
+        else:
+            return "⚠️ Data inválida. Use o formato dd/mm/aaaa (ex: 10/08/2026)"
+
+    return None
+
+
 @app.on_event("startup")
 async def startup():
     await init_db()
     logger.info("✅ Banco de dados inicializado")
+
 
 @app.post("/webhook/whatsapp")
 async def webhook_whatsapp(request: Request):
@@ -630,6 +334,7 @@ async def webhook_whatsapp(request: Request):
                     await enviar_mensagem(grupo_id, resposta)
                     return {"status": "success", "message": "Comando processado", "resposta": resposta}
 
+            logger.info(f"🔍 Estado da conversa de {remetente}: {conversation_manager.get_estado(remetente)}")
             if conversation_manager.get_estado(remetente) != ESTADO_NORMAL:
                 resposta = await processar_resposta_conversa(remetente, grupo_id, texto)
                 if resposta:
@@ -654,6 +359,7 @@ async def webhook_whatsapp(request: Request):
     except Exception as e:
         logger.error(f"❌ Erro ao processar webhook: {e}")
         return {"status": "error", "message": str(e)}
+
 
 @app.get("/")
 async def root():

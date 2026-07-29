@@ -6,6 +6,7 @@ from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
 from datetime import datetime
 from typing import List, Optional, Tuple
+import secrets
 
 from database import Usuario, Categoria, Transacao, Mes
 
@@ -26,7 +27,15 @@ class UsuarioRepository:
                 await self.session.refresh(usuario)
             return usuario
 
-        usuario = Usuario(telefone=telefone, nome=None, grupo_id=grupo_id)
+        chave_login = secrets.token_hex(4).upper()
+        chave_senha = secrets.token_hex(4).upper()
+        usuario = Usuario(
+            telefone=telefone,
+            nome=None,
+            grupo_id=grupo_id,
+            chave_login=chave_login,
+            chave_senha=chave_senha
+        )
         self.session.add(usuario)
         await self.session.commit()
         await self.session.refresh(usuario)
@@ -60,33 +69,6 @@ class CategoriaRepository:
         stmt = select(Categoria).where(Categoria.usuario_id == usuario_id).order_by(Categoria.nome)
         result = await self.session.execute(stmt)
         return result.scalars().all()
-
-
-class MesRepository:
-    def __init__(self, session):
-        self.session = session
-
-    async def get_or_create_mes_atual(self, grupo_id: str) -> Mes:
-        agora = datetime.now()
-        mes = agora.month
-        ano = agora.year
-
-        stmt = select(Mes).where(
-            Mes.mes == mes,
-            Mes.ano == ano,
-            Mes.grupo_id == grupo_id
-        )
-        result = await self.session.execute(stmt)
-        mes_obj = result.scalar_one_or_none()
-
-        if mes_obj:
-            return mes_obj
-
-        mes_obj = Mes.criar_para_grupo(grupo_id)
-        self.session.add(mes_obj)
-        await self.session.commit()
-        await self.session.refresh(mes_obj)
-        return mes_obj
 
 
 class TransacaoRepository:
@@ -182,3 +164,30 @@ class TransacaoRepository:
             'despesas': total_despesas,
             'saldo': saldo
         }
+
+
+class MesRepository:
+    def __init__(self, session):
+        self.session = session
+
+    async def get_or_create_mes_atual(self, grupo_id: str) -> Mes:
+        agora = datetime.now()
+        mes = agora.month
+        ano = agora.year
+
+        stmt = select(Mes).where(
+            Mes.mes == mes,
+            Mes.ano == ano,
+            Mes.grupo_id == grupo_id
+        )
+        result = await self.session.execute(stmt)
+        mes_obj = result.scalar_one_or_none()
+
+        if mes_obj:
+            return mes_obj
+
+        mes_obj = Mes.criar_para_grupo(grupo_id)
+        self.session.add(mes_obj)
+        await self.session.commit()
+        await self.session.refresh(mes_obj)
+        return mes_obj
