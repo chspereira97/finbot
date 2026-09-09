@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 import secrets
 
-from database import Usuario, Categoria, Transacao, Mes
+from database import Usuario, Categoria, Transacao, Mes, AcessoGrupo
 
 
 class UsuarioRepository:
@@ -16,30 +16,54 @@ class UsuarioRepository:
         self.session = session
 
     async def get_or_create_by_telefone(self, telefone: str, grupo_id: str) -> Usuario:
+        """Busca usuário pelo telefone. Se não existir, cria com chaves automáticas."""
         stmt = select(Usuario).where(Usuario.telefone == telefone)
         result = await self.session.execute(stmt)
         usuario = result.scalar_one_or_none()
 
         if usuario:
-            if usuario.grupo_id != grupo_id:
-                usuario.grupo_id = grupo_id
-                await self.session.commit()
-                await self.session.refresh(usuario)
+            # Não sobrescreve mais o grupo_id do usuário a cada mensagem.
+            # O grupo_id correto de cada operação já vem como parâmetro
+            # explícito em cada comando/consulta.
             return usuario
 
-        chave_login = secrets.token_hex(4).upper()
-        chave_senha = secrets.token_hex(4).upper()
         usuario = Usuario(
             telefone=telefone,
             nome=None,
             grupo_id=grupo_id,
-            chave_login=chave_login,
-            chave_senha=chave_senha
+            chave_login=None,
+            chave_senha=None
         )
         self.session.add(usuario)
         await self.session.commit()
         await self.session.refresh(usuario)
         return usuario
+
+    async def get_or_create_acesso(self, usuario_id: int, grupo_id: str) -> AcessoGrupo:
+        """Busca ou cria um acesso para o usuário em um grupo específico"""
+        stmt = select(AcessoGrupo).where(
+            AcessoGrupo.usuario_id == usuario_id,
+            AcessoGrupo.grupo_id == grupo_id
+        )
+        result = await self.session.execute(stmt)
+        acesso = result.scalar_one_or_none()
+
+        if acesso:
+            return acesso
+
+        chave_login = secrets.token_hex(4).upper()
+        chave_senha = secrets.token_hex(4).upper()
+        
+        acesso = AcessoGrupo(
+            usuario_id=usuario_id,
+            grupo_id=grupo_id,
+            chave_login=chave_login,
+            chave_senha=chave_senha
+        )
+        self.session.add(acesso)
+        await self.session.commit()
+        await self.session.refresh(acesso)
+        return acesso
 
 
 class CategoriaRepository:

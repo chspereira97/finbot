@@ -8,7 +8,7 @@ import secrets
 
 from sqlalchemy import select
 
-from database import AsyncSessionLocal, Usuario
+from database import AsyncSessionLocal, AcessoGrupo
 from repositories import TransacaoRepository, MesRepository, UsuarioRepository
 
 
@@ -38,7 +38,6 @@ async def cmd_resumo(grupo_id: str) -> str:
         for t in transacoes:
             nome_categoria = t.categoria.nome if t.categoria else "Sem categoria"
             nome_usuario = t.usuario.nome if t.usuario.nome else t.usuario.telefone
-            forma = t.forma_pagamento if t.forma_pagamento else "Não informado"
             if t.tipo == 'D':
                 chave = f"{nome_usuario} - {nome_categoria}"
                 categorias_despesas[chave] += t.valor
@@ -125,42 +124,78 @@ async def cmd_meu_nome(telefone: str, grupo_id: str, nome: str) -> str:
 
 
 async def cmd_chaves(remetente: str, grupo_id: str) -> str:
-    """Comando /chaves - Gera chaves de acesso específicas para o grupo"""
     async with AsyncSessionLocal() as session:
-        # Busca o usuário pelo telefone e grupo
-        stmt = select(Usuario).where(
-            Usuario.telefone == remetente,
-            Usuario.grupo_id == grupo_id
+        usuario_repo = UsuarioRepository(session)
+        usuario = await usuario_repo.get_or_create_by_telefone(remetente, grupo_id)
+
+        stmt = select(AcessoGrupo).where(
+            AcessoGrupo.usuario_id == usuario.id,
+            AcessoGrupo.grupo_id == grupo_id
         )
         result = await session.execute(stmt)
-        usuario = result.scalar_one_or_none()
+        acesso = result.scalar_one_or_none()
 
-        if not usuario:
-            # Se não existir, cria com chaves específicas do grupo
-            login = secrets.token_hex(4).upper()
-            senha = secrets.token_hex(4).upper()
-            usuario = Usuario(
-                telefone=remetente,
-                nome=None,
-                grupo_id=grupo_id,
-                chave_login=login,
-                chave_senha=senha
-            )
-            session.add(usuario)
-            await session.commit()
-            await session.refresh(usuario)
+        if acesso:
+            # Já existe chave para este grupo: devolve a mesma, sem regenerar.
+            chave_login = acesso.chave_login
+            chave_senha = acesso.chave_senha
         else:
-            login = usuario.chave_login
-            senha = usuario.chave_senha
-        
+            chave_login = secrets.token_hex(4).upper()
+            chave_senha = secrets.token_hex(4).upper()
+            acesso = AcessoGrupo(
+                usuario_id=usuario.id,
+                grupo_id=grupo_id,
+                chave_login=chave_login,
+                chave_senha=chave_senha
+            )
+            session.add(acesso)
+            await session.commit()
+
         return (
-            f"🔑 *Chaves de acesso deste grupo:*\n\n"
-            f"📌 *Login:* `{login}`\n"
-            f"🔒 *Senha:* `{senha}`\n\n"
+            f"🔑 *Chaves de acesso do grupo:*\n\n"
+            f"📌 *Login:* `{chave_login}`\n"
+            f"🔒 *Senha:* `{chave_senha}`\n\n"
             f"Acesse o dashboard em:\n"
             f"https://server.tailb5388f.ts.net/dashboard\n\n"
-            f"⚠️ *Estas chaves são específicas para este grupo!*\n"
-            f"Cada grupo tem suas próprias chaves."
+            f"Estas chaves são fixas para este grupo.\n"
+            f"Use /chaves_renovar caso queira gerar novas chaves."
+        )
+
+
+async def cmd_chaves_renovar(remetente: str, grupo_id: str) -> str:
+    async with AsyncSessionLocal() as session:
+        usuario_repo = UsuarioRepository(session)
+        usuario = await usuario_repo.get_or_create_by_telefone(remetente, grupo_id)
+
+        chave_login = secrets.token_hex(4).upper()
+        chave_senha = secrets.token_hex(4).upper()
+
+        stmt = select(AcessoGrupo).where(
+            AcessoGrupo.usuario_id == usuario.id,
+            AcessoGrupo.grupo_id == grupo_id
+        )
+        result = await session.execute(stmt)
+        acesso = result.scalar_one_or_none()
+
+        if acesso:
+            acesso.chave_login = chave_login
+            acesso.chave_senha = chave_senha
+        else:
+            acesso = AcessoGrupo(
+                usuario_id=usuario.id,
+                grupo_id=grupo_id,
+                chave_login=chave_login,
+                chave_senha=chave_senha
+            )
+            session.add(acesso)
+
+        await session.commit()
+
+        return (
+            f"🔄 *Novas chaves geradas:*\n\n"
+            f"📌 *Login:* `{chave_login}`\n"
+            f"🔒 *Senha:* `{chave_senha}`\n\n"
+            f"⚠️ As chaves antigas deste grupo deixaram de funcionar."
         )
 
 

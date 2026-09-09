@@ -31,6 +31,7 @@ from commands import (
     cmd_editar,
     cmd_meu_nome,
     cmd_chaves,
+    cmd_chaves_renovar,
     cmd_ajuda
 )
 from dashboard_api import router as dashboard_router
@@ -102,6 +103,8 @@ async def processar_comando(remetente: str, grupo_id: str, texto: str) -> Option
         return await cmd_ajuda()
     if texto == "/chaves":
         return await cmd_chaves(remetente, grupo_id)
+    if texto == "/chaves_renovar":
+        return await cmd_chaves_renovar(remetente, grupo_id)
     if texto.startswith("/ultimos"):
         if len(partes) == 2:
             try:

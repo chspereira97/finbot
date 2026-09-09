@@ -39,12 +39,28 @@ class Usuario(Base):
     nome = Column(String, nullable=True)
     telefone = Column(String, unique=True, index=True, nullable=True)
     grupo_id = Column(String, nullable=False)
-    chave_login = Column(String, nullable=False)
-    chave_senha = Column(String, nullable=False)
+    chave_login = Column(String, nullable=True)   # Agora pode ser NULL
+    chave_senha = Column(String, nullable=True)   # Agora pode ser NULL
     criado_em = Column(DateTime, server_default=func.now())
 
     categorias = relationship("Categoria", back_populates="usuario")
     transacoes = relationship("Transacao", back_populates="usuario")
+    acessos = relationship("AcessoGrupo", back_populates="usuario", cascade="all, delete-orphan")
+
+
+class AcessoGrupo(Base):
+    """Acesso por grupo - cada usuário tem chaves diferentes por grupo"""
+    __tablename__ = "acessos_grupos"
+    __table_args__ = (UniqueConstraint('usuario_id', 'grupo_id', name='uq_usuario_grupo'),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
+    grupo_id = Column(String, nullable=False)
+    chave_login = Column(String, nullable=False)
+    chave_senha = Column(String, nullable=False)
+    criado_em = Column(DateTime, server_default=func.now())
+
+    usuario = relationship("Usuario", back_populates="acessos")
 
 
 class Categoria(Base):

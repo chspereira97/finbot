@@ -11,7 +11,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional
 
-from database import AsyncSessionLocal, Usuario
+from database import AsyncSessionLocal, Usuario, AcessoGrupo
 from repositories import TransacaoRepository
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
@@ -54,7 +54,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         usuario_id = payload.get("sub")
-        if usuario_id is None:
+        grupo_id_token = payload.get("grupo_id")
+        if usuario_id is None or grupo_id_token is None:
             raise credentials_exception
     except jwt.JWTError:
         raise credentials_exception
@@ -62,30 +63,46 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     usuario = await obter_usuario_por_id(usuario_id)
     if usuario is None:
         raise credentials_exception
+
+    # Usa o grupo_id que veio autenticado no token (via AcessoGrupo),
+    # não o campo mutável usuario.grupo_id. Evita mistura entre grupos
+    # quando o mesmo telefone participa de mais de um grupo.
+    usuario.grupo_id = grupo_id_token
     return usuario
 
 
 @router.post("/login")
 async def login(dados: LoginRequest):
     async with AsyncSessionLocal() as session:
-        stmt = select(Usuario).where(
-            Usuario.chave_login == dados.chave_login,
-            Usuario.chave_senha == dados.chave_senha
+        # Busca o acesso com as chaves fornecidas
+        stmt = select(AcessoGrupo).where(
+            AcessoGrupo.chave_login == dados.chave_login,
+            AcessoGrupo.chave_senha == dados.chave_senha
         )
         result = await session.execute(stmt)
-        usuario = result.scalar_one_or_none()
+        acesso = result.scalar_one_or_none()
 
-        if not usuario:
+        if not acesso:
             raise HTTPException(status_code=401, detail="Chaves inválidas")
+        
+        # Busca o usuário
+        stmt = select(Usuario).where(Usuario.id == acesso.usuario_id)
+        result = await session.execute(stmt)
+        usuario = result.scalar_one()
 
-        token = criar_token({"sub": str(usuario.id), "grupo_id": usuario.grupo_id})
+        # Token contém o grupo_id do acesso
+        token = criar_token({
+            "sub": str(usuario.id),
+            "grupo_id": acesso.grupo_id
+        })
+        
         return {
             "access_token": token,
             "token_type": "bearer",
             "usuario": {
                 "id": usuario.id,
                 "nome": usuario.nome,
-                "grupo_id": usuario.grupo_id
+                "grupo_id": acesso.grupo_id
             }
         }
 
