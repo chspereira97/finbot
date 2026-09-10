@@ -147,10 +147,10 @@ async def finalizar_transacao(remetente: str, grupo_id: str, dados: dict) -> str
 
     info = extrair_info_mensagem(texto)
     if info['valor'] is None:
-        conversation_manager.resetar(remetente)
+        conversation_manager.resetar(remetente, grupo_id)
         return "⚠️ Erro: não consegui identificar o valor da transação."
     if info['categoria'] is None:
-        conversation_manager.resetar(remetente)
+        conversation_manager.resetar(remetente, grupo_id)
         return "⚠️ Erro: não consegui identificar a categoria."
 
     async with AsyncSessionLocal() as session:
@@ -227,13 +227,13 @@ async def finalizar_transacao(remetente: str, grupo_id: str, dados: dict) -> str
                 f"📅 *Data:* {data_formatada}"
             )
 
-    conversation_manager.resetar(remetente)
+    conversation_manager.resetar(remetente, grupo_id)
     return resposta
 
 
 async def processar_resposta_conversa(remetente: str, grupo_id: str, texto: str) -> Optional[str]:
-    estado = conversation_manager.get_estado(remetente)
-    dados = conversation_manager.get_dados(remetente)
+    estado = conversation_manager.get_estado(remetente, grupo_id)
+    dados = conversation_manager.get_dados(remetente, grupo_id)
 
     logger.info(f"🔄 Processando resposta de conversa: '{texto}', estado: {estado}")
 
@@ -242,7 +242,7 @@ async def processar_resposta_conversa(remetente: str, grupo_id: str, texto: str)
             forma = conversation_manager.normalizar_forma(texto)
             dados['forma_pagamento'] = forma
             if conversation_manager.eh_credito(forma):
-                conversation_manager.set_estado(remetente, ESTADO_AGUARDANDO_PARCELAS, dados)
+                conversation_manager.set_estado(remetente, grupo_id, ESTADO_AGUARDANDO_PARCELAS, dados)
                 return "Em quantas parcelas? (1 = à vista)"
             else:
                 return await finalizar_transacao(remetente, grupo_id, dados)
@@ -253,7 +253,7 @@ async def processar_resposta_conversa(remetente: str, grupo_id: str, texto: str)
         if conversation_manager.is_parcela_valida(texto):
             parcelas = int(texto)
             dados['parcelas'] = parcelas
-            conversation_manager.set_estado(remetente, ESTADO_AGUARDANDO_DATA, dados)
+            conversation_manager.set_estado(remetente, grupo_id, ESTADO_AGUARDANDO_DATA, dados)
             return "Qual a data do pagamento? (dd/mm/aaaa)"
         else:
             return "⚠️ Número de parcelas inválido. Digite um número (ex: 1, 2, 3...)"
@@ -337,14 +337,14 @@ async def webhook_whatsapp(request: Request):
                     await enviar_mensagem(grupo_id, resposta)
                     return {"status": "success", "message": "Comando processado", "resposta": resposta}
 
-            logger.info(f"🔍 Estado da conversa de {remetente}: {conversation_manager.get_estado(remetente)}")
-            if conversation_manager.get_estado(remetente) != ESTADO_NORMAL:
+            logger.info(f"🔍 Estado da conversa de {remetente}: {conversation_manager.get_estado(remetente, grupo_id)}")
+            if conversation_manager.get_estado(remetente, grupo_id) != ESTADO_NORMAL:
                 resposta = await processar_resposta_conversa(remetente, grupo_id, texto)
                 if resposta:
                     await enviar_mensagem(grupo_id, resposta)
                     return {"status": "success", "message": "Conversa processada", "resposta": resposta}
                 else:
-                    conversation_manager.resetar(remetente)
+                    conversation_manager.resetar(remetente, grupo_id)
                     await enviar_mensagem(grupo_id, "⚠️ Erro na conversa. Tente novamente.")
                     return {"status": "error", "message": "Erro na conversa"}
 
@@ -353,7 +353,7 @@ async def webhook_whatsapp(request: Request):
                 await usuario_repo.get_or_create_by_telefone(remetente, grupo_id)
 
             dados_conversa = {'texto_original': texto}
-            conversation_manager.set_estado(remetente, ESTADO_AGUARDANDO_FORMA, dados_conversa)
+            conversation_manager.set_estado(remetente, grupo_id, ESTADO_AGUARDANDO_FORMA, dados_conversa)
             await enviar_mensagem(grupo_id, "Qual a forma de pagamento? (pix, credito, debito, dinheiro)")
             return {"status": "success", "message": "Aguardando forma de pagamento"}
 

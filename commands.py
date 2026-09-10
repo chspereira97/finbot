@@ -8,7 +8,7 @@ import secrets
 
 from sqlalchemy import select
 
-from database import AsyncSessionLocal, AcessoGrupo
+from database import AsyncSessionLocal, AcessoGrupo, Transacao
 from repositories import TransacaoRepository, MesRepository, UsuarioRepository
 
 
