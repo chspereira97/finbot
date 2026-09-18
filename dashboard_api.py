@@ -7,16 +7,16 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from jose import jwt
 from sqlalchemy import select
-import os
 from datetime import datetime, timedelta
 from typing import Optional
 
 from database import AsyncSessionLocal, Usuario, AcessoGrupo
 from repositories import TransacaoRepository
+from config import require_env
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "finbot_secret_key_change_this_in_production")
+SECRET_KEY = require_env("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 

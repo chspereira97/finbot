@@ -11,6 +11,8 @@ __pycache__/
 
 # Banco de dados
 *.db
+*.db-shm
+*.db-wal
 *.sqlite3
 *.sqlite
 
@@ -18,6 +20,11 @@ __pycache__/
 .env
 .env.local
 .env.*.local
+
+# Arquivos temporários e cópias locais
+*.errado
+*.bak
+*.tmp
 
 # IDE
 .vscode/

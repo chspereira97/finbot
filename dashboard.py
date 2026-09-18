@@ -11,13 +11,13 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 import bcrypt
 import jwt
-import os
 
 from database import AsyncSessionLocal, Usuario, Transacao, Categoria
 from repositories import TransacaoRepository, CategoriaRepository
+from config import require_env
 
 # Configuração JWT
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "finbot_secret_key_change_this_in_production")
+SECRET_KEY = require_env("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 

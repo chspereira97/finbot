@@ -35,14 +35,14 @@ from commands import (
     cmd_ajuda
 )
 from dashboard_api import router as dashboard_router
+from config import EVOLUTION_API_URL, EVOLUTION_INSTANCE, require_env
+
+EVOLUTION_API_KEY = require_env("EVOLUTION_API_KEY")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="FinBot")
-
-INSTANCIA = "finbot"
-API_KEY = "D3C7E34BD4DF-44FE-85A7-ACD98CC1B0AD"
 
 app.add_middleware(
     CORSMiddleware,
@@ -78,9 +78,9 @@ app.include_router(dashboard_router)
 # ============================================================
 
 async def enviar_mensagem(telefone: str, texto: str):
-    url = f"http://localhost:8080/message/sendText/{INSTANCIA}"
+    url = f"{EVOLUTION_API_URL}/message/sendText/{EVOLUTION_INSTANCE}"
     payload = {"number": telefone, "text": texto}
-    headers = {"apikey": API_KEY, "Content-Type": "application/json"}
+    headers = {"apikey": EVOLUTION_API_KEY, "Content-Type": "application/json"}
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(url, json=payload, headers=headers)
