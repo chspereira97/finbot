@@ -14,16 +14,14 @@ from sqlalchemy import select
 
 from database import AsyncSessionLocal, Transacao, Usuario, Categoria
 from repositories import TransacaoRepository
+from config import EVOLUTION_API_URL, EVOLUTION_INSTANCE, require_env
 
-INSTANCIA = "finbot"
-API_KEY = "D3C7E34BD4DF-44FE-85A7-ACD98CC1B0AD"
-EVOLUTION_URL = "http://localhost:8080"
-
+EVOLUTION_API_KEY = require_env("EVOLUTION_API_KEY")
 
 async def enviar_mensagem(telefone: str, texto: str):
-    url = f"{EVOLUTION_URL}/message/sendText/{INSTANCIA}"
+    url = f"{EVOLUTION_API_URL}/message/sendText/{EVOLUTION_INSTANCE}"
     payload = {"number": telefone, "text": texto}
-    headers = {"apikey": API_KEY, "Content-Type": "application/json"}
+    headers = {"apikey": EVOLUTION_API_KEY, "Content-Type": "application/json"}
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(url, json=payload, headers=headers)

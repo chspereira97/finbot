@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from database import AsyncSessionLocal, AcessoGrupo, Transacao
 from repositories import TransacaoRepository, MesRepository, UsuarioRepository
+from config import DASHBOARD_PUBLIC_URL
 
 
 async def cmd_total(grupo_id: str) -> str:
@@ -156,7 +157,7 @@ async def cmd_chaves(remetente: str, grupo_id: str) -> str:
             f"📌 *Login:* `{chave_login}`\n"
             f"🔒 *Senha:* `{chave_senha}`\n\n"
             f"Acesse o dashboard em:\n"
-            f"https://server.tailb5388f.ts.net/dashboard\n\n"
+            f"{DASHBOARD_PUBLIC_URL}\n\n"
             f"Estas chaves são fixas para este grupo.\n"
             f"Use /chaves_renovar caso queira gerar novas chaves."
         )
